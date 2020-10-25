@@ -24,59 +24,87 @@ function createFetcher(
     [initialKey]: initialData
   });
 
-  const currentCacheAtom = atom((get) => {
-    const cache = get(cacheAtom);
-    const cacheKey = get(cacheKeyAtom);
+  const currentCacheAtom = atom(
+    (get) => {
+      const cache = get(cacheAtom);
+      const cacheKey = get(cacheKeyAtom);
 
-    return cache[cacheKey];
-  });
+      return cache[cacheKey];
+    },
+    (get, set, args) => {
+      const cache = get(cacheAtom);
+      set(cacheAtom, {
+        ...cache,
+        ...args
+      });
+    }
+  );
 
   const updaterAtom = atom(null, async (get, set, action = {}) => {
     if (action.type === "fetchData") {
       const config = get(configAtom);
       const params = get(paramsAtom);
-      const cacheKey = get(cacheKeyAtom);
       const cache = get(cacheAtom);
+      const cacheKey = get(cacheKeyAtom);
 
       const isCacheMiss = !cache[cacheKey];
       if (config.stale || isCacheMiss) {
         const newData = await fetcher(params);
-        set(cacheAtom, {
-          ...cache,
-          [cacheKey]: newData
-        });
+
+        if (isCacheMiss) {
+          set(cacheAtom, {
+            ...cache,
+            [cacheKey]: newData
+          });
+        }
+
+        if (config.stale) {
+          set(cacheAtom, {
+            [cacheKey]: newData
+          });
+        }
+
         set(configAtom, {
           ...config,
           stale: false
         });
       }
     }
-    if (action.type === "invalidateCache") {
+    if (action.type === "invalidate") {
+      const config = get(configAtom);
       set(configAtom, {
+        ...config,
         stale: true
       });
-      set(cacheAtom, {});
+    }
+    if (action.type === "resetCache") {
+      set(cacheAtom, initialData);
     }
   });
 
+  function useDispatch() {
+    const [_a, dispatch] = useAtom(updaterAtom);
+
+    return dispatch;
+  }
+
   function useFetcher() {
     const [cache] = useAtom(cacheAtom);
-    const [config] = useAtom(configAtom);
     const [cacheKey] = useAtom(cacheKeyAtom);
-    const [_a, dspatch] = useAtom(updaterAtom);
+    const dispatch = useDispatch();
 
     useEffect(() => {
-      dspatch({
+      dispatch({
         type: "fetchData"
       });
-    }, [config.stale, dspatch, cacheKey]);
+    }, [dispatch, cacheKey]);
 
     const currentData = useMemo(() => cache[cacheKey], [cache, cacheKey]);
 
-    return [currentData, dspatch];
+    return currentData;
   }
 
-  return [useFetcher, paramsAtom, currentCacheAtom, updaterAtom];
+  return [useFetcher, useDispatch, paramsAtom, currentCacheAtom, cacheKeyAtom];
 }
 
 export { createFetcher };
